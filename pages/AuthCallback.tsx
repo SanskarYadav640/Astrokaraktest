@@ -2,13 +2,46 @@ import React, { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../src/lib/supabaseClient';
 
+function readOAuthCodeFromUrl(): string | null {
+  const searchParams = new URLSearchParams(window.location.search);
+  const codeFromSearch = searchParams.get('code');
+  if (codeFromSearch) return codeFromSearch;
+
+  // HashRouter form can look like:
+  // #/auth/callback?code=... or #access_token=...
+  const hash = window.location.hash ?? '';
+  const queryIndex = hash.indexOf('?');
+  if (queryIndex >= 0) {
+    const hashQuery = hash.slice(queryIndex + 1);
+    const hashParams = new URLSearchParams(hashQuery);
+    const codeFromHashQuery = hashParams.get('code');
+    if (codeFromHashQuery) return codeFromHashQuery;
+  }
+
+  return null;
+}
+
 const AuthCallback: React.FC = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
     const finish = async () => {
-      // Ensure Supabase session is loaded, then send the user to their profile.
-      await supabase.auth.getSession();
+      if (!supabase) {
+        navigate('/profile', { replace: true });
+        return;
+      }
+
+      const code = readOAuthCodeFromUrl();
+      if (code) {
+        const { error } = await supabase.auth.exchangeCodeForSession(code);
+        if (error) {
+          // eslint-disable-next-line no-console
+          console.error('OAuth code exchange failed:', error.message);
+        }
+      } else {
+        await supabase.auth.getSession();
+      }
+
       navigate('/profile', { replace: true });
     };
 
@@ -26,4 +59,3 @@ const AuthCallback: React.FC = () => {
 };
 
 export default AuthCallback;
-

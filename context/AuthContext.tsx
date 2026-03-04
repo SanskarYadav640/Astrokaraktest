@@ -1,7 +1,7 @@
 // src/context/AuthContext.tsx
 import { createContext, useContext, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
-import { supabase } from '../src/lib/supabaseClient';
+import { hasSupabaseConfig, supabase } from '../src/lib/supabaseClient';
 
 type Role = 'admin' | 'subscriber' | 'public';
 
@@ -87,31 +87,55 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AppUser | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const init = async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      const currentUser = session?.user ?? null;
+  const refreshProfileAndUser = async (currentUser: any | null) => {
+    try {
       setRawUser(currentUser);
 
-      if (currentUser) {
-        const { data } = await supabase
-          .from('profiles')
-          .select('id, role, subscription_active')
-          .eq('id', currentUser.id)
-          .maybeSingle();
-
-        const profileData = (data as Profile | null) ?? null;
-        setProfile(profileData);
-        setUser(mapSessionToUser(currentUser, profileData));
-      } else {
+      if (!currentUser || !supabase) {
         setProfile(null);
         setUser(null);
+        return;
       }
 
+      const { data } = await supabase
+        .from('profiles')
+        .select('id, role, subscription_active')
+        .eq('id', currentUser.id)
+        .maybeSingle();
+
+      const profileData = (data as Profile | null) ?? null;
+      setProfile(profileData);
+      setUser(mapSessionToUser(currentUser, profileData));
+    } catch (err) {
+      // Keep the app usable even if profile fetch fails.
+      // eslint-disable-next-line no-console
+      console.error('Failed to hydrate user profile:', err);
+      setProfile(null);
+      if (currentUser) {
+        setUser(mapSessionToUser(currentUser, null));
+      } else {
+        setUser(null);
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (!supabase) {
       setLoading(false);
+      return;
+    }
+
+    const init = async () => {
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+
+        const currentUser = session?.user ?? null;
+        await refreshProfileAndUser(currentUser);
+      } finally {
+        setLoading(false);
+      }
     };
 
     void init();
@@ -120,24 +144,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       const currentUser = session?.user ?? null;
-      setRawUser(currentUser);
-      if (!currentUser) {
-        setProfile(null);
-        setUser(null);
-      } else {
-        // Profile will be refreshed shortly by explicit refetch below.
-        void (async () => {
-          const { data } = await supabase
-            .from('profiles')
-            .select('id, role, subscription_active')
-            .eq('id', currentUser.id)
-            .maybeSingle();
-
-          const profileData = (data as Profile | null) ?? null;
-          setProfile(profileData);
-          setUser(mapSessionToUser(currentUser, profileData));
-        })();
-      }
+      void refreshProfileAndUser(currentUser);
     });
 
     return () => subscription.unsubscribe();
@@ -151,6 +158,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const isLoggedIn = !!rawUser;
 
   const loginWithGoogle = async () => {
+    if (!supabase) {
+      // eslint-disable-next-line no-alert
+      alert('Supabase is not configured for this deployment.');
+      return;
+    }
+    // For HashRouter apps, complete OAuth inside a dedicated hash callback route.
     const redirectTo = `${window.location.origin}${window.location.pathname}#/auth/callback`;
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
@@ -165,17 +178,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const loginWithEmail = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({
+    if (!supabase) {
+      // eslint-disable-next-line no-alert
+      alert('Supabase is not configured for this deployment.');
+      return;
+    }
+    const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
     if (error) {
       // eslint-disable-next-line no-alert
       alert(error.message);
+      return;
     }
+    await refreshProfileAndUser(data.user ?? null);
   };
 
   const logout = async () => {
+    if (!supabase) return;
     await supabase.auth.signOut();
     setRawUser(null);
     setProfile(null);
@@ -200,7 +221,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         updateProfile,
       }}
     >
-      {children}
+      {!hasSupabaseConfig ? (
+        <div className="min-h-screen flex items-center justify-center bg-[#F9F9F7] p-6">
+          <div className="max-w-xl w-full bg-white rounded-2xl shadow-lg px-8 py-10 border border-gray-100">
+            <h1 className="text-2xl font-serif font-bold text-gray-900 mb-3">Configuration required</h1>
+            <p className="text-sm text-gray-600 mb-4">
+              Supabase is not configured for this deployment. Add these environment variables in Vercel, then redeploy.
+            </p>
+            <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 text-xs text-gray-700 font-mono space-y-1">
+              <div>VITE_SUPABASE_URL=...</div>
+              <div>VITE_SUPABASE_ANON_KEY=...</div>
+              <div>VITE_SUPABASE_PUBLISHABLE_KEY=... (optional alternative)</div>
+            </div>
+          </div>
+        </div>
+      ) : (
+        children
+      )}
     </AuthContext.Provider>
   );
 }
