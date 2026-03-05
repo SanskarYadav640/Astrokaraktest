@@ -5,6 +5,7 @@ import {
   LayoutDashboard, 
   FileText, 
   Calendar, 
+  BarChart3,
   Settings, 
   LogOut, 
   Plus, 
@@ -24,8 +25,10 @@ import {
 
 interface AdminLayoutProps {
   children: React.ReactNode;
-  activeTab: 'overview' | 'blogs' | 'taxonomy' | 'starthere' | 'services' | 'bookings' | 'settings';
-  setActiveTab: (tab: 'overview' | 'blogs' | 'taxonomy' | 'starthere' | 'services' | 'bookings' | 'settings') => void;
+  activeTab: 'overview' | 'blogs' | 'taxonomy' | 'starthere' | 'services' | 'bookings' | 'members' | 'analytics' | 'settings';
+  setActiveTab: (
+    tab: 'overview' | 'blogs' | 'taxonomy' | 'starthere' | 'services' | 'bookings' | 'members' | 'analytics' | 'settings',
+  ) => void;
   onLogout: () => void;
   searchQuery?: string;
   setSearchQuery?: (query: string) => void;
@@ -150,13 +153,24 @@ const AdminLayout: React.FC<AdminLayoutProps> = ({
             icon={Briefcase} 
             label="Services" 
           />
+          <SidebarLink
+            active={activeTab === 'members'}
+            onClick={() => setActiveTab('members')}
+            icon={Users}
+            label="Member Management"
+          />
+          <SidebarLink
+            active={activeTab === 'analytics'}
+            onClick={() => setActiveTab('analytics')}
+            icon={BarChart3}
+            label="Analytics"
+          />
           
           {/* Disabled Items */}
           <div className="pt-4 pb-2">
             <p className="px-4 text-[10px] font-bold uppercase tracking-widest text-gray-600 mb-2">Modules</p>
             <SidebarLink icon={ShoppingBag} label="Products" disabled />
             <SidebarLink icon={ShoppingCart} label="Orders" disabled />
-            <SidebarLink icon={Users} label="Users" disabled />
             <SidebarLink icon={GraduationCap} label="Courses" disabled />
             <SidebarLink icon={MessageSquare} label="Community" disabled />
             <SidebarLink icon={ImageIcon} label="Media" disabled />
@@ -194,7 +208,13 @@ const AdminLayout: React.FC<AdminLayoutProps> = ({
             </button>
             <div>
               <h1 className="text-2xl font-bold text-gray-900 capitalize truncate">
-                {activeTab === 'starthere' ? 'Start Here Manager' : activeTab === 'taxonomy' ? 'Categories & Tags' : activeTab}
+                {
+                  activeTab === 'starthere' ? 'Start Here Manager'
+                  : activeTab === 'taxonomy' ? 'Categories & Tags'
+                  : activeTab === 'members' ? 'Member Management'
+                  : activeTab === 'analytics' ? 'Analytics'
+                  : activeTab
+                }
               </h1>
               <p className="text-sm text-gray-500 hidden sm:block">Welcome back, Administrator</p>
             </div>

@@ -25,6 +25,7 @@ import JyotishBookSubcategory from './pages/JyotishBookSubcategory';
 import TextReadingForm from './pages/TextReadingForm';
 import Reviews from './pages/Reviews';
 import AuthCallback from './pages/AuthCallback';
+import RequireAdminRoute from './components/RequireAdminRoute';
 
 // Admin Editor
 import BlogEditor from './src/admin/pages/BlogEditor';
@@ -45,8 +46,10 @@ const App: React.FC = () => {
         <Routes>
           {/* Admin Routes - Rendered standalone without Public Navbar */}
           <Route path="/admin" element={<AdminDashboard />} />
-          <Route path="/admin/blog/new" element={<BlogEditor />} />
-          <Route path="/admin/blog/edit/:id" element={<BlogEditor />} />
+          <Route element={<RequireAdminRoute />}>
+            <Route path="/admin/blog/new" element={<BlogEditor />} />
+            <Route path="/admin/blog/edit/:id" element={<BlogEditor />} />
+          </Route>
 
           {/* Auth callback for Supabase OAuth (Google) */}
           <Route path="/auth/callback" element={<AuthCallback />} />

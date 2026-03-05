@@ -8,13 +8,17 @@ import TaxonomyTab from '../src/admin/tabs/TaxonomyTab';
 import StartHereTab from '../src/admin/tabs/StartHereTab';
 import ServicesTab from '../src/admin/tabs/ServicesTab';
 import BookingsTab from '../src/admin/tabs/BookingsTab';
+import MembersTab from '../src/admin/tabs/MembersTab';
+import AnalyticsTab from '../src/admin/tabs/AnalyticsTab';
 import { listBlogs, listBookings } from '../src/admin/adminData';
 import { AdminBlogPost } from '../src/admin/adminTypes';
 import { useAuth } from '../context/AuthContext';
 
 const AdminDashboard: React.FC = () => {
   const { role, loading, loginWithGoogle, loginWithEmail, logout } = useAuth();
-  const [activeTab, setActiveTab] = useState<'overview' | 'blogs' | 'taxonomy' | 'starthere' | 'services' | 'bookings' | 'settings'>('overview');
+  const [activeTab, setActiveTab] = useState<
+    'overview' | 'blogs' | 'taxonomy' | 'starthere' | 'services' | 'bookings' | 'members' | 'analytics' | 'settings'
+  >('overview');
   const [searchQuery, setSearchQuery] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -116,6 +120,10 @@ const AdminDashboard: React.FC = () => {
         return <ServicesTab />;
       case 'bookings':
         return <BookingsTab />;
+      case 'members':
+        return <MembersTab />;
+      case 'analytics':
+        return <AnalyticsTab />;
       case 'settings':
         return <SettingsTab />;
       default:

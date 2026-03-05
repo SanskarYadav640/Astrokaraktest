@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { 
   BookOpen, 
   Download, 
@@ -25,9 +25,17 @@ import {
   Users,
   ShieldCheck
 } from 'lucide-react';
-import { MOCK_MEMBER_DATA, ALL_COURSES, EBOOKS, PRIORITY_SERVICES } from '../constants';
-import { Link, useNavigate } from 'react-router-dom';
+import { MOCK_MEMBER_DATA, ALL_COURSES, EBOOKS } from '../constants';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import {
+  fetchMyBiodata,
+  fetchMyBookings,
+  fetchMyEntitlements,
+  upsertMyBiodata,
+  type MemberBooking,
+  type MemberEntitlement,
+} from '../src/lib/secureData';
 
 const MemberProfile: React.FC = () => {
   const { user, isLoggedIn, loginWithGoogle, loginWithEmail, logout, updateProfile } = useAuth();
@@ -35,15 +43,48 @@ const MemberProfile: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isUpdating, setIsUpdating] = useState(false);
-  const navigate = useNavigate();
+  const [entitlements, setEntitlements] = useState<MemberEntitlement[]>([]);
+  const [myBookings, setMyBookings] = useState<MemberBooking[]>([]);
+  const [memberDataLoading, setMemberDataLoading] = useState(false);
 
   // Profile Edit State
   const [profileName, setProfileName] = useState(user?.name || '');
   const [profileBio, setProfileBio] = useState(user?.bio || 'Student of technical Jyotish.');
+  const [birthDate, setBirthDate] = useState('');
+  const [birthTime, setBirthTime] = useState('');
+  const [birthPlace, setBirthPlace] = useState('');
+  const [gender, setGender] = useState('');
 
   // Logic to find owned vs unowned
-  const ownedCourseIds = useMemo(() => MOCK_MEMBER_DATA.courses.map(c => c.id), []);
-  const ownedEbookIds = useMemo(() => MOCK_MEMBER_DATA.ebooks.map(e => e.id), []);
+  const fallbackOwnedCourseIds = useMemo(() => MOCK_MEMBER_DATA.courses.map(c => c.id), []);
+  const fallbackOwnedEbookIds = useMemo(() => MOCK_MEMBER_DATA.ebooks.map(e => e.id), []);
+
+  const entOwnedCourseIds = useMemo(
+    () => entitlements.filter(e => e.item_type === 'course').map(e => e.item_key),
+    [entitlements],
+  );
+  const entOwnedEbookIds = useMemo(
+    () => entitlements.filter(e => e.item_type === 'ebook').map(e => e.item_key),
+    [entitlements],
+  );
+
+  const ownedCourseIds = entOwnedCourseIds.length > 0 ? entOwnedCourseIds : fallbackOwnedCourseIds;
+  const ownedEbookIds = entOwnedEbookIds.length > 0 ? entOwnedEbookIds : fallbackOwnedEbookIds;
+  const ownedCourses = ALL_COURSES.filter(c => ownedCourseIds.includes(c.id));
+  const ownedEbooks = EBOOKS.filter(e => ownedEbookIds.includes(e.id));
+  const consultationHistory = myBookings.length > 0
+    ? myBookings.map(b => ({
+        id: b.id,
+        service: b.service_title,
+        date: `${b.preferred_date} ${b.preferred_time}`,
+        status:
+          b.status === 'done' ? 'Completed'
+          : b.status === 'confirmed' ? 'Upcoming'
+          : b.status === 'cancelled' ? 'Cancelled'
+          : 'New Request',
+        recordingUrl: null as string | null,
+      }))
+    : MOCK_MEMBER_DATA.consultations;
 
   const unownedCourses = useMemo(() => 
     ALL_COURSES.filter(c => !ownedCourseIds.includes(c.id)), 
@@ -53,14 +94,56 @@ const MemberProfile: React.FC = () => {
     EBOOKS.filter(e => !ownedEbookIds.includes(e.id)), 
   [ownedEbookIds]);
 
-  const handleUpdateProfile = (e: React.FormEvent) => {
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    setProfileName(user?.name || '');
+    setProfileBio(user?.bio || 'Student of technical Jyotish.');
+  }, [isLoggedIn, user?.name, user?.bio]);
+
+  useEffect(() => {
+    if (!isLoggedIn) {
+      setEntitlements([]);
+      setMyBookings([]);
+      return;
+    }
+
+    const loadMemberData = async () => {
+      setMemberDataLoading(true);
+      const [ents, bookings, biodata] = await Promise.all([
+        fetchMyEntitlements(),
+        fetchMyBookings(),
+        fetchMyBiodata(),
+      ]);
+      setEntitlements(ents);
+      setMyBookings(bookings);
+      if (biodata?.full_name) setProfileName(biodata.full_name);
+      if (biodata?.bio) setProfileBio(biodata.bio);
+      if (biodata?.date_of_birth) setBirthDate(biodata.date_of_birth);
+      if (biodata?.time_of_birth) setBirthTime(biodata.time_of_birth);
+      if (biodata?.place_of_birth) setBirthPlace(biodata.place_of_birth);
+      if (biodata?.gender) setGender(biodata.gender);
+      setMemberDataLoading(false);
+    };
+
+    void loadMemberData();
+  }, [isLoggedIn]);
+
+  const handleUpdateProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsUpdating(true);
-    setTimeout(() => {
-      updateProfile({ name: profileName, bio: profileBio });
-      setIsUpdating(false);
-      setActiveTab('content');
-    }, 1000);
+
+    updateProfile({ name: profileName, bio: profileBio });
+    await upsertMyBiodata({
+      full_name: profileName,
+      bio: profileBio,
+      date_of_birth: birthDate || null,
+      time_of_birth: birthTime || null,
+      place_of_birth: birthPlace || null,
+      gender: gender || null,
+    });
+
+    setIsUpdating(false);
+    setActiveTab('content');
   };
 
   const handleEmailLogin = async (e: React.FormEvent) => {
@@ -202,6 +285,9 @@ const MemberProfile: React.FC = () => {
 
       {/* Content Area */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+        {memberDataLoading && (
+          <div className="mb-6 text-xs text-gray-500">Syncing your purchases and access rights...</div>
+        )}
         {activeTab === 'settings' && (
           <div className="max-w-2xl animate-fade-in">
             <h2 className="text-xs font-bold text-amber-700 uppercase tracking-[0.3em] mb-8">Account Configuration</h2>
@@ -223,6 +309,48 @@ const MemberProfile: React.FC = () => {
                   rows={3}
                   className="w-full px-5 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-amber-500 focus:outline-none transition-all text-sm"
                 />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Date of Birth</label>
+                  <input
+                    type="date"
+                    value={birthDate}
+                    onChange={(e) => setBirthDate(e.target.value)}
+                    className="w-full px-5 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-amber-500 focus:outline-none transition-all text-sm"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Time of Birth</label>
+                  <input
+                    type="time"
+                    value={birthTime}
+                    onChange={(e) => setBirthTime(e.target.value)}
+                    className="w-full px-5 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-amber-500 focus:outline-none transition-all text-sm"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Place of Birth</label>
+                  <input
+                    type="text"
+                    value={birthPlace}
+                    onChange={(e) => setBirthPlace(e.target.value)}
+                    placeholder="City, State, Country"
+                    className="w-full px-5 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-amber-500 focus:outline-none transition-all text-sm"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Gender</label>
+                  <input
+                    type="text"
+                    value={gender}
+                    onChange={(e) => setGender(e.target.value)}
+                    placeholder="Optional"
+                    className="w-full px-5 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-amber-500 focus:outline-none transition-all text-sm"
+                  />
+                </div>
               </div>
               <div className="pt-4">
                 <button 
@@ -277,7 +405,7 @@ const MemberProfile: React.FC = () => {
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
                 {/* Owned Courses */}
-                {MOCK_MEMBER_DATA.courses.map((course) => (
+                {ownedCourses.map((course) => (
                   <div key={course.id} className="group bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden flex flex-col hover:border-amber-200 transition-all">
                     <div className="relative aspect-video">
                       <img src={course.image} alt={course.title} className="w-full h-full object-cover" />
@@ -327,7 +455,7 @@ const MemberProfile: React.FC = () => {
 
               <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
                 {/* Owned Ebooks */}
-                {MOCK_MEMBER_DATA.ebooks.map((ebook) => (
+                {ownedEbooks.map((ebook) => (
                   <div key={ebook.id} className="group bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden flex flex-col hover:border-amber-200 transition-all">
                     <div className="relative aspect-[3/4]">
                       <img src={ebook.image} alt={ebook.title} className="w-full h-full object-cover" />
@@ -372,9 +500,9 @@ const MemberProfile: React.FC = () => {
         {activeTab === 'bookings' && (
           <div className="space-y-6 animate-fade-in max-w-4xl">
             <h2 className="text-xs font-bold text-amber-700 uppercase tracking-[0.3em] mb-10">Consultation History</h2>
-            {MOCK_MEMBER_DATA.consultations.length > 0 ? (
+            {consultationHistory.length > 0 ? (
               <div className="space-y-4">
-                {MOCK_MEMBER_DATA.consultations.map((booking) => (
+                {consultationHistory.map((booking) => (
                   <div key={booking.id} className="bg-white rounded-2xl border border-gray-100 p-6 flex flex-col md:flex-row md:items-center justify-between gap-6 hover:border-amber-100 transition-all group shadow-sm">
                     <div className="flex items-center space-x-5">
                       <div className="w-14 h-14 rounded-2xl bg-amber-50 text-amber-700 flex items-center justify-center group-hover:bg-amber-700 group-hover:text-white transition-all">
@@ -387,7 +515,9 @@ const MemberProfile: React.FC = () => {
                     </div>
                     <div className="flex items-center space-x-6">
                       <span className={`text-[10px] font-bold uppercase tracking-widest px-4 py-1.5 rounded-full ${
-                        booking.status === 'Completed' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
+                        booking.status === 'Completed' ? 'bg-green-100 text-green-700'
+                        : booking.status === 'Cancelled' ? 'bg-red-100 text-red-700'
+                        : 'bg-amber-100 text-amber-700'
                       }`}>
                         {booking.status}
                       </span>

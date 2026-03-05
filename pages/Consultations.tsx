@@ -24,14 +24,18 @@ import {
 import { Service } from '../types';
 import { listActiveServices, seedDefaultServicesIfEmpty } from '../src/admin/servicesStore';
 import { createBooking } from '../src/admin/bookingsStore';
+import { useAuth } from '../context/AuthContext';
+import { createServiceBookingAndPurchase } from '../src/lib/secureData';
 
 const Consultations: React.FC = () => {
   const navigate = useNavigate();
+  const { isLoggedIn, user } = useAuth();
   const [questionCount, setQuestionCount] = useState<string>('1');
   const [services, setServices] = useState<Service[]>([]);
   const [selectedService, setSelectedService] = useState<Service | null>(null);
   const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
   const [bookingSuccess, setBookingSuccess] = useState(false);
+  const [accessGranted, setAccessGranted] = useState(false);
 
   // Booking Form State
   const [formData, setFormData] = useState({
@@ -57,6 +61,7 @@ const Consultations: React.FC = () => {
   const openBookingModal = (service: Service) => {
     setSelectedService(service);
     setBookingSuccess(false);
+    setAccessGranted(false);
     setFormData({ name: '', email: '', whatsapp: '', date: '', time: '', message: '' });
     setIsBookingModalOpen(true);
   };
@@ -70,6 +75,23 @@ const Consultations: React.FC = () => {
     // Simulate network delay
     await new Promise(resolve => setTimeout(resolve, 1500));
 
+    let grantedAutomatically = false;
+    if (isLoggedIn && user?.id) {
+      const result = await createServiceBookingAndPurchase({
+        serviceId: selectedService.id,
+        serviceTitle: selectedService.title,
+        servicePriceInr: selectedService.priceInr,
+        preferredDate: formData.date,
+        preferredTime: formData.time,
+        name: formData.name,
+        email: formData.email || user.email || '',
+        whatsapp: formData.whatsapp,
+        message: formData.message,
+      });
+      grantedAutomatically = result.ok;
+    }
+
+    // Local fallback record for offline/admin visibility.
     createBooking({
       serviceId: selectedService.id,
       serviceTitleSnapshot: selectedService.title,
@@ -83,6 +105,7 @@ const Consultations: React.FC = () => {
     });
 
     setIsSubmitting(false);
+    setAccessGranted(grantedAutomatically);
     setBookingSuccess(true);
   };
 
@@ -487,6 +510,11 @@ const Consultations: React.FC = () => {
                   <br/><br/>
                   Our team will contact you on WhatsApp at <span className="font-bold text-gray-900">{formData.whatsapp}</span> within 24 hours to confirm the slot and payment details.
                 </p>
+                {accessGranted && (
+                  <div className="mb-8 px-4 py-3 bg-green-50 border border-green-200 rounded-lg text-xs text-green-700">
+                    This purchase was linked to your account and access was granted automatically.
+                  </div>
+                )}
                 <button 
                   onClick={() => setIsBookingModalOpen(false)}
                   className="px-8 py-3 bg-amber-700 text-white font-bold uppercase tracking-widest text-xs rounded-lg hover:bg-amber-800 transition-all"
