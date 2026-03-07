@@ -38,8 +38,10 @@ import {
 } from '../src/lib/secureData';
 
 const MemberProfile: React.FC = () => {
-  const { user, isLoggedIn, loginWithGoogle, loginWithEmail, logout, updateProfile } = useAuth();
+  const { user, isLoggedIn, loginWithGoogle, loginWithEmail, signupWithEmail, logout, updateProfile } = useAuth();
   const [activeTab, setActiveTab] = useState<'content' | 'bookings' | 'dm' | 'saved' | 'settings'>('content');
+  const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin');
+  const [authName, setAuthName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isUpdating, setIsUpdating] = useState(false);
@@ -146,9 +148,13 @@ const MemberProfile: React.FC = () => {
     setActiveTab('content');
   };
 
-  const handleEmailLogin = async (e: React.FormEvent) => {
+  const handleEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) return;
+    if (authMode === 'signup') {
+      await signupWithEmail(email, password, authName);
+      return;
+    }
     await loginWithEmail(email, password);
   };
 
@@ -158,9 +164,42 @@ const MemberProfile: React.FC = () => {
         <div className="max-w-md w-full bg-white rounded-3xl shadow-xl p-10 border border-gray-100 animate-fade-in">
           <div className="text-center mb-10">
             <h1 className="text-3xl font-serif font-bold text-gray-900 mb-2">Member Portal</h1>
-            <p className="text-sm text-gray-500">Sign in to access your learning archive and dashboard.</p>
+            <p className="text-sm text-gray-500">
+              {authMode === 'signup'
+                ? 'Create your account to access your learning archive and dashboard.'
+                : 'Sign in to access your learning archive and dashboard.'}
+            </p>
           </div>
-          <form onSubmit={handleEmailLogin} className="space-y-6 mb-6">
+          <div className="mb-6 p-1 bg-gray-100 rounded-xl grid grid-cols-2 gap-1 text-xs font-bold uppercase tracking-widest">
+            <button
+              type="button"
+              onClick={() => setAuthMode('signin')}
+              className={`py-2 rounded-lg transition-all ${authMode === 'signin' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}
+            >
+              Sign In
+            </button>
+            <button
+              type="button"
+              onClick={() => setAuthMode('signup')}
+              className={`py-2 rounded-lg transition-all ${authMode === 'signup' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}
+            >
+              Sign Up
+            </button>
+          </div>
+          <form onSubmit={handleEmailAuth} className="space-y-6 mb-6">
+            {authMode === 'signup' && (
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Full Name</label>
+                <input
+                  type="text"
+                  value={authName}
+                  onChange={(e) => setAuthName(e.target.value)}
+                  required={authMode === 'signup'}
+                  placeholder="Your full name"
+                  className="w-full px-5 py-4 bg-gray-50 border border-gray-200 rounded-2xl focus:ring-2 focus:ring-amber-500 focus:outline-none transition-all text-sm"
+                />
+              </div>
+            )}
             <div className="space-y-2">
               <label className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Email Address</label>
               <input 
@@ -187,14 +226,14 @@ const MemberProfile: React.FC = () => {
               type="submit"
               className="w-full py-5 bg-gray-900 text-white font-bold rounded-2xl hover:bg-black transition-all shadow-lg uppercase tracking-widest text-xs"
             >
-              Sign In with Email
+              {authMode === 'signup' ? 'Create Account' : 'Sign In with Email'}
             </button>
           </form>
           <button
             onClick={loginWithGoogle}
             className="w-full py-4 bg-white text-gray-900 font-bold rounded-2xl border border-gray-200 hover:border-amber-700 hover:text-amber-700 transition-all shadow-sm uppercase tracking-widest text-[11px] flex items-center justify-center space-x-3"
           >
-            <span>Or continue with Google</span>
+            <span>Continue with Google</span>
           </button>
           <div className="mt-10 pt-8 border-t border-gray-50 text-center">
             <p className="text-xs text-gray-400">New student? <Link to="/courses" className="text-amber-700 font-bold hover:underline">Enroll in a course</Link> to get access.</p>

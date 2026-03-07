@@ -2,6 +2,8 @@ import React, { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../src/lib/supabaseClient';
 
+const POST_LOGIN_REDIRECT_KEY = 'astrokarak_post_login_redirect';
+
 function readOAuthCodeFromUrl(): string | null {
   const searchParams = new URLSearchParams(window.location.search);
   const codeFromSearch = searchParams.get('code');
@@ -21,13 +23,32 @@ function readOAuthCodeFromUrl(): string | null {
   return null;
 }
 
+function readOAuthTokensFromHash(): { accessToken: string; refreshToken: string } | null {
+  const hash = window.location.hash ?? '';
+
+  // Handle both formats:
+  // #access_token=...&refresh_token=...
+  // #/auth/callback#access_token=...&refresh_token=...
+  const marker = 'access_token=';
+  const tokenIndex = hash.indexOf(marker);
+  if (tokenIndex < 0) return null;
+
+  const tokenPart = hash.slice(tokenIndex);
+  const params = new URLSearchParams(tokenPart);
+  const accessToken = params.get('access_token');
+  const refreshToken = params.get('refresh_token');
+
+  if (!accessToken || !refreshToken) return null;
+  return { accessToken, refreshToken };
+}
+
 const AuthCallback: React.FC = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
     const finish = async () => {
       if (!supabase) {
-        navigate('/profile', { replace: true });
+        navigate('/', { replace: true });
         return;
       }
 
@@ -39,10 +60,24 @@ const AuthCallback: React.FC = () => {
           console.error('OAuth code exchange failed:', error.message);
         }
       } else {
-        await supabase.auth.getSession();
+        const tokens = readOAuthTokensFromHash();
+        if (tokens) {
+          const { error } = await supabase.auth.setSession({
+            access_token: tokens.accessToken,
+            refresh_token: tokens.refreshToken,
+          });
+          if (error) {
+            // eslint-disable-next-line no-console
+            console.error('OAuth token session set failed:', error.message);
+          }
+        } else {
+          await supabase.auth.getSession();
+        }
       }
 
-      navigate('/profile', { replace: true });
+      const redirectTarget = window.sessionStorage.getItem(POST_LOGIN_REDIRECT_KEY) || '/';
+      window.sessionStorage.removeItem(POST_LOGIN_REDIRECT_KEY);
+      navigate(redirectTarget, { replace: true });
     };
 
     void finish();

@@ -3,6 +3,194 @@
 
 create extension if not exists pgcrypto;
 
+create table if not exists public.admin_allowed_ids (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  note text,
+  created_at timestamptz not null default now()
+);
+
+-- Helper view for dashboard/table editor: shows readable admin identities.
+create or replace view public.admin_allowed_users as
+select
+  a.user_id,
+  p.full_name,
+  p.email,
+  a.note,
+  a.created_at
+from public.admin_allowed_ids a
+left join public.profiles p
+  on p.id = a.user_id;
+
+create table if not exists public.profiles (
+  id uuid primary key references auth.users(id) on delete cascade,
+  role text not null default 'subscriber' check (role in ('admin', 'subscriber')),
+  subscription_active boolean not null default false,
+  full_name text,
+  email text,
+  avatar_url text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  last_sign_in_at timestamptz
+);
+
+-- Backward-compatible migration for existing profiles tables
+alter table public.profiles add column if not exists role text;
+alter table public.profiles add column if not exists subscription_active boolean;
+alter table public.profiles add column if not exists full_name text;
+alter table public.profiles add column if not exists email text;
+alter table public.profiles add column if not exists avatar_url text;
+alter table public.profiles add column if not exists created_at timestamptz;
+alter table public.profiles add column if not exists updated_at timestamptz;
+alter table public.profiles add column if not exists last_sign_in_at timestamptz;
+
+-- Normalize role values safely for both text and enum role columns.
+do $$
+declare
+  v_data_type text;
+begin
+  select c.data_type
+  into v_data_type
+  from information_schema.columns c
+  where c.table_schema = 'public'
+    and c.table_name = 'profiles'
+    and c.column_name = 'role';
+
+  if v_data_type = 'USER-DEFINED' then
+    -- Enum role columns cannot contain empty string; only backfill nulls.
+    update public.profiles
+    set role = 'subscriber'
+    where role is null;
+  else
+    update public.profiles
+    set role = 'subscriber'
+    where role is null or btrim(role::text) = '';
+  end if;
+end
+$$;
+update public.profiles set subscription_active = false where subscription_active is null;
+update public.profiles set created_at = now() where created_at is null;
+update public.profiles set updated_at = now() where updated_at is null;
+
+-- Preserve existing admins by seeding explicit admin ID allowlist.
+insert into public.admin_allowed_ids (user_id, note)
+select p.id, 'seeded_from_profiles_role_admin'
+from public.profiles p
+where p.role = 'admin'
+on conflict (user_id) do nothing;
+
+alter table public.profiles alter column role set default 'subscriber';
+alter table public.profiles alter column role set not null;
+alter table public.profiles alter column subscription_active set default false;
+alter table public.profiles alter column subscription_active set not null;
+alter table public.profiles alter column created_at set default now();
+alter table public.profiles alter column created_at set not null;
+alter table public.profiles alter column updated_at set default now();
+alter table public.profiles alter column updated_at set not null;
+
+alter table public.profiles drop constraint if exists profiles_role_check;
+alter table public.profiles
+  add constraint profiles_role_check
+  check (role in ('admin', 'subscriber'));
+
+-- Create profile rows for new auth users.
+create or replace function public.handle_new_auth_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into public.profiles (
+    id, role, subscription_active, full_name, email, avatar_url, created_at, updated_at, last_sign_in_at
+  )
+  values (
+    new.id,
+    'subscriber',
+    false,
+    coalesce(
+      nullif(new.raw_user_meta_data->>'full_name', ''),
+      nullif(new.raw_user_meta_data->>'name', ''),
+      split_part(coalesce(new.email, ''), '@', 1),
+      'Member'
+    ),
+    new.email,
+    nullif(new.raw_user_meta_data->>'avatar_url', ''),
+    coalesce(new.created_at, now()),
+    now(),
+    new.last_sign_in_at
+  )
+  on conflict (id) do nothing;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_handle_new_auth_user on auth.users;
+create trigger trg_handle_new_auth_user
+after insert on auth.users
+for each row
+execute function public.handle_new_auth_user();
+
+-- Sync profile from auth.users for current user (captures Google metadata updates).
+create or replace function public.sync_my_profile_from_auth()
+returns public.profiles
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+declare
+  v_uid uuid := auth.uid();
+  v_existing_role text;
+  v_existing_subscription boolean;
+  v_profile public.profiles;
+begin
+  if v_uid is null then
+    raise exception 'Not authenticated';
+  end if;
+
+  select p.role, p.subscription_active
+  into v_existing_role, v_existing_subscription
+  from public.profiles p
+  where p.id = v_uid;
+
+  insert into public.profiles as p (
+    id, role, subscription_active, full_name, email, avatar_url, created_at, updated_at, last_sign_in_at
+  )
+  select
+    u.id,
+    coalesce(v_existing_role, 'subscriber'),
+    coalesce(v_existing_subscription, false),
+    coalesce(
+      nullif(u.raw_user_meta_data->>'full_name', ''),
+      nullif(u.raw_user_meta_data->>'name', ''),
+      split_part(coalesce(u.email, ''), '@', 1),
+      'Member'
+    ),
+    u.email,
+    nullif(u.raw_user_meta_data->>'avatar_url', ''),
+    coalesce(u.created_at, now()),
+    now(),
+    u.last_sign_in_at
+  from auth.users u
+  where u.id = v_uid
+  on conflict (id) do update set
+    email = excluded.email,
+    full_name = coalesce(excluded.full_name, p.full_name),
+    avatar_url = coalesce(excluded.avatar_url, p.avatar_url),
+    updated_at = now(),
+    last_sign_in_at = excluded.last_sign_in_at
+  returning * into v_profile;
+
+  if v_profile.id is null then
+    raise exception 'Unable to sync profile';
+  end if;
+
+  return v_profile;
+end;
+$$;
+
+grant execute on function public.sync_my_profile_from_auth() to authenticated;
+
 create table if not exists public.member_biodata (
   user_id uuid primary key references auth.users(id) on delete cascade,
   full_name text,
@@ -120,13 +308,49 @@ set search_path = public
 as $$
   select exists (
     select 1
-    from public.profiles p
-    where p.id = auth.uid()
-      and p.role = 'admin'
+    from public.admin_allowed_ids a
+    where a.user_id = auth.uid()
   );
 $$;
 
 grant execute on function public.is_admin() to anon, authenticated;
+
+-- One-time/bootstrap helper: add admin by email (run from SQL editor).
+create or replace function public.add_admin_by_email(target_email text, admin_note text default null)
+returns uuid
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+declare
+  v_user_id uuid;
+begin
+  select u.id
+  into v_user_id
+  from auth.users u
+  where lower(u.email) = lower(trim(target_email))
+  limit 1;
+
+  if v_user_id is null then
+    raise exception 'No auth.users row found for email: %', target_email;
+  end if;
+
+  insert into public.admin_allowed_ids (user_id, note)
+  values (v_user_id, coalesce(admin_note, target_email))
+  on conflict (user_id) do update set
+    note = excluded.note;
+
+  -- Keep profile role aligned for legacy UI checks.
+  update public.profiles
+  set role = 'admin', updated_at = now()
+  where id = v_user_id;
+
+  return v_user_id;
+end;
+$$;
+
+revoke all on function public.add_admin_by_email(text, text) from public;
+grant execute on function public.add_admin_by_email(text, text) to service_role;
 
 -- Auto-grant entitlement when a paid purchase is inserted.
 create or replace function public.grant_entitlement_from_purchase()
@@ -164,6 +388,35 @@ alter table public.member_purchases enable row level security;
 alter table public.member_entitlements enable row level security;
 alter table public.member_bookings enable row level security;
 alter table public.blog_posts enable row level security;
+alter table public.profiles enable row level security;
+alter table public.admin_allowed_ids enable row level security;
+
+-- Profiles: users can see/edit themselves, admins can view/edit everyone.
+drop policy if exists profiles_self_select on public.profiles;
+create policy profiles_self_select on public.profiles
+for select using (auth.uid() = id or public.is_admin());
+
+drop policy if exists profiles_self_insert on public.profiles;
+create policy profiles_self_insert on public.profiles
+for insert with check (auth.uid() = id or public.is_admin());
+
+drop policy if exists profiles_self_update on public.profiles;
+create policy profiles_self_update on public.profiles
+for update using (auth.uid() = id or public.is_admin())
+with check (auth.uid() = id or public.is_admin());
+
+-- Admin allowlist: only admins can view/mutate.
+drop policy if exists admin_allowed_ids_admin_select on public.admin_allowed_ids;
+create policy admin_allowed_ids_admin_select on public.admin_allowed_ids
+for select using (public.is_admin());
+
+drop policy if exists admin_allowed_ids_admin_insert on public.admin_allowed_ids;
+create policy admin_allowed_ids_admin_insert on public.admin_allowed_ids
+for insert with check (public.is_admin());
+
+drop policy if exists admin_allowed_ids_admin_delete on public.admin_allowed_ids;
+create policy admin_allowed_ids_admin_delete on public.admin_allowed_ids
+for delete using (public.is_admin());
 
 -- Self or admin access for member tables.
 drop policy if exists member_biodata_self_select on public.member_biodata;

@@ -1,14 +1,17 @@
 
 import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Menu, X, User, LogOut, Trophy, Sparkles } from 'lucide-react';
+import { Menu, X, LogOut, Trophy } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 const Navbar: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
-  const { user, isLoggedIn, logout } = useAuth();
+  const { user, role, isLoggedIn, isGuest, logout } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
+  const isAdmin = role === 'admin';
+  const dashboardPath = isAdmin ? '/admin' : '/profile';
+  const dashboardLabel = isAdmin ? 'Admin Dashboard' : user?.tier === 'Student' ? 'Student Portal' : 'Member Hub';
 
   const navLinks = [
     { name: 'Start Here', path: '/start-here' },
@@ -21,9 +24,9 @@ const Navbar: React.FC = () => {
 
   const isActive = (path: string) => location.pathname === path;
 
-  const handleLogout = () => {
-    logout();
-    navigate('/');
+  const handleLogout = async () => {
+    await logout();
+    navigate('/login');
   };
 
   return (
@@ -54,12 +57,12 @@ const Navbar: React.FC = () => {
             <div className="flex items-center space-x-4 pl-4 border-l border-gray-100">
               {isLoggedIn && user ? (
                 <div className="flex items-center space-x-6">
-                  <Link to="/profile" className="group flex items-center space-x-2">
+                  <Link to={dashboardPath} className="group flex items-center space-x-2">
                     <div className="relative">
                       <div className="w-8 h-8 rounded-full overflow-hidden border border-gray-200 group-hover:border-amber-700 transition-all">
                         <img src={user.avatar} alt="Profile" className="w-full h-full object-cover" />
                       </div>
-                      {user.tier === 'Student' && (
+                      {!isAdmin && user.tier === 'Student' && (
                         <div className="absolute -top-1 -right-1 bg-amber-700 text-white p-0.5 rounded-full ring-2 ring-white">
                           <Trophy size={8} />
                         </div>
@@ -67,7 +70,10 @@ const Navbar: React.FC = () => {
                     </div>
                     <div className="flex flex-col items-start leading-none">
                       <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest mb-0.5">
-                        {user.tier === 'Student' ? 'Student Portal' : 'Member Hub'}
+                        {dashboardLabel}
+                      </span>
+                      <span className="text-[11px] font-semibold text-gray-700 max-w-[120px] truncate">
+                        {user.name}
                       </span>
                       <span className="text-[10px] font-bold text-gray-900 group-hover:text-amber-700 transition-colors">
                         My Dashboard
@@ -78,12 +84,21 @@ const Navbar: React.FC = () => {
                     <LogOut size={18} />
                   </button>
                 </div>
+              ) : isGuest ? (
+                <div className="flex items-center space-x-4">
+                  <span className="text-xs font-bold uppercase tracking-widest text-amber-700 bg-amber-50 px-3 py-2 rounded-full">
+                    Guest Access
+                  </span>
+                  <button onClick={handleLogout} className="text-gray-400 hover:text-red-600 transition-colors">
+                    <LogOut size={18} />
+                  </button>
+                </div>
               ) : (
                 <Link 
-                  to="/profile"
+                  to="/login"
                   className="text-sm font-medium text-amber-700 hover:text-amber-800"
                 >
-                  Member Login
+                  Sign In
                 </Link>
               )}
               
@@ -123,16 +138,25 @@ const Navbar: React.FC = () => {
           ))}
           {isLoggedIn ? (
             <>
-              <Link to="/profile" onClick={() => setIsOpen(false)} className="block px-3 py-2 rounded-md text-base font-medium text-amber-700 bg-amber-50">
-                {user?.tier === 'Student' ? 'Student Portal' : 'Member Hub'}
+              <Link to={dashboardPath} onClick={() => setIsOpen(false)} className="block px-3 py-2 rounded-md text-base font-medium text-amber-700 bg-amber-50">
+                {dashboardLabel + (user?.name ? ` - ${user.name}` : '')}
               </Link>
               <button onClick={handleLogout} className="w-full text-left px-3 py-2 rounded-md text-base font-medium text-red-600">
                 Sign Out
               </button>
             </>
+          ) : isGuest ? (
+            <>
+              <div className="block px-3 py-2 rounded-md text-base font-medium text-amber-700 bg-amber-50">
+                Guest Access
+              </div>
+              <button onClick={handleLogout} className="w-full text-left px-3 py-2 rounded-md text-base font-medium text-red-600">
+                Exit Guest
+              </button>
+            </>
           ) : (
-            <Link to="/profile" onClick={() => setIsOpen(false)} className="block px-3 py-2 rounded-md text-base font-medium text-amber-700">
-              Member Sign In
+            <Link to="/login" onClick={() => setIsOpen(false)} className="block px-3 py-2 rounded-md text-base font-medium text-amber-700">
+              Sign In
             </Link>
           )}
         </div>

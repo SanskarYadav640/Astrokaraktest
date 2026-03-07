@@ -9,6 +9,10 @@ type Profile = {
   id: string;
   role: 'admin' | 'subscriber';
   subscription_active: boolean;
+  full_name?: string | null;
+  email?: string | null;
+  avatar_url?: string | null;
+  created_at?: string | null;
 };
 
 type AppUser = {
@@ -27,11 +31,18 @@ type AuthContextValue = {
   role: Role;
   loading: boolean;
   isLoggedIn: boolean;
-  loginWithGoogle: () => Promise<void>;
+  isGuest: boolean;
+  hasAccess: boolean;
+  loginWithGoogle: (nextPath?: string) => Promise<void>;
   loginWithEmail: (email: string, password: string) => Promise<void>;
+  signupWithEmail: (email: string, password: string, fullName?: string) => Promise<void>;
+  continueAsGuest: () => void;
   logout: () => Promise<void>;
   updateProfile: (patch: Partial<Pick<AppUser, 'name' | 'bio'>>) => void;
 };
+
+const GUEST_ACCESS_KEY = 'astrokarak_guest_access';
+const POST_LOGIN_REDIRECT_KEY = 'astrokarak_post_login_redirect';
 
 const AuthContext = createContext<AuthContextValue>({
   user: null,
@@ -39,10 +50,16 @@ const AuthContext = createContext<AuthContextValue>({
   role: 'public',
   loading: true,
   isLoggedIn: false,
+  isGuest: false,
+  hasAccess: false,
   // eslint-disable-next-line @typescript-eslint/no-empty-function
   loginWithGoogle: async () => {},
   // eslint-disable-next-line @typescript-eslint/no-empty-function
   loginWithEmail: async () => {},
+  // eslint-disable-next-line @typescript-eslint/no-empty-function
+  signupWithEmail: async () => {},
+  // eslint-disable-next-line @typescript-eslint/no-empty-function
+  continueAsGuest: () => {},
   // eslint-disable-next-line @typescript-eslint/no-empty-function
   logout: async () => {},
   // eslint-disable-next-line @typescript-eslint/no-empty-function
@@ -50,18 +67,20 @@ const AuthContext = createContext<AuthContextValue>({
 });
 
 function mapSessionToUser(sessionUser: any, profile: Profile | null): AppUser {
-  const email = sessionUser?.email ?? null;
+  const email = sessionUser?.email ?? profile?.email ?? null;
   const fullName =
     sessionUser?.user_metadata?.full_name ??
     sessionUser?.user_metadata?.name ??
+    profile?.full_name ??
     email ??
     'Member';
 
   const avatarUrl =
     sessionUser?.user_metadata?.avatar_url ??
+    profile?.avatar_url ??
     `https://api.dicebear.com/9.x/initials/svg?seed=${encodeURIComponent(fullName)}`;
 
-  const createdAt = sessionUser?.created_at ?? new Date().toISOString();
+  const createdAt = sessionUser?.created_at ?? profile?.created_at ?? new Date().toISOString();
   const joinDate = new Date(createdAt).toLocaleDateString('en-US', {
     month: 'short',
     day: 'numeric',
@@ -85,7 +104,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [rawUser, setRawUser] = useState<any | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [user, setUser] = useState<AppUser | null>(null);
+  const [isAdminFlag, setIsAdminFlag] = useState(false);
+  const [isGuest, setIsGuest] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return window.localStorage.getItem(GUEST_ACCESS_KEY) === '1';
+  });
   const [loading, setLoading] = useState(true);
+
+  const clearGuestAccess = () => {
+    setIsGuest(false);
+    if (typeof window !== 'undefined') {
+      window.localStorage.removeItem(GUEST_ACCESS_KEY);
+    }
+  };
 
   const refreshProfileAndUser = async (currentUser: any | null) => {
     try {
@@ -94,23 +125,47 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!currentUser || !supabase) {
         setProfile(null);
         setUser(null);
+        setIsAdminFlag(false);
         return;
       }
 
-      const { data } = await supabase
+      clearGuestAccess();
+
+      const { error: syncError } = await supabase.rpc('sync_my_profile_from_auth');
+      if (syncError) {
+        // eslint-disable-next-line no-console
+        console.warn('Profile sync warning:', syncError.message);
+      }
+
+      const { data, error } = await supabase
         .from('profiles')
-        .select('id, role, subscription_active')
+        .select('id, role, subscription_active, full_name, email, avatar_url, created_at')
         .eq('id', currentUser.id)
         .maybeSingle();
 
       const profileData = (data as Profile | null) ?? null;
       setProfile(profileData);
       setUser(mapSessionToUser(currentUser, profileData));
+
+      // Role lookup can fail if profile RLS/policies are strict.
+      // Use security-definer RPC fallback to determine admin status.
+      try {
+        const { data: adminData } = await supabase.rpc('is_admin');
+        setIsAdminFlag(adminData === true);
+      } catch {
+        setIsAdminFlag(profileData?.role === 'admin');
+      }
+
+      if (error) {
+        // eslint-disable-next-line no-console
+        console.warn('Profile query warning:', error.message);
+      }
     } catch (err) {
       // Keep the app usable even if profile fetch fails.
       // eslint-disable-next-line no-console
       console.error('Failed to hydrate user profile:', err);
       setProfile(null);
+      setIsAdminFlag(false);
       if (currentUser) {
         setUser(mapSessionToUser(currentUser, null));
       } else {
@@ -152,17 +207,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const role: Role =
     !rawUser ? 'public'
-    : profile?.role === 'admin' ? 'admin'
+    : isAdminFlag || profile?.role === 'admin' ? 'admin'
     : 'subscriber';
 
   const isLoggedIn = !!rawUser;
+  const hasAccess = isLoggedIn || isGuest;
 
-  const loginWithGoogle = async () => {
+  const loginWithGoogle = async (nextPath = '/') => {
     if (!supabase) {
       // eslint-disable-next-line no-alert
       alert('Supabase is not configured for this deployment.');
       return;
     }
+
+    if (typeof window !== 'undefined') {
+      window.sessionStorage.setItem(POST_LOGIN_REDIRECT_KEY, nextPath);
+    }
+
     // For HashRouter apps, complete OAuth inside a dedicated hash callback route.
     const redirectTo = `${window.location.origin}${window.location.pathname}#/auth/callback`;
     const { error } = await supabase.auth.signInWithOAuth({
@@ -192,15 +253,80 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       alert(error.message);
       return;
     }
-    await refreshProfileAndUser(data.user ?? null);
+
+    const currentUser = data.user ?? null;
+    if (currentUser) {
+      try {
+        const { data: adminData } = await supabase.rpc('is_admin');
+        if (adminData === true) {
+          await supabase.auth.signOut();
+          // eslint-disable-next-line no-alert
+          alert('Admin accounts must sign in with Google only.');
+          return;
+        }
+      } catch {
+        // ignore profile lookup errors and continue with normal sign-in
+      }
+    }
+    await refreshProfileAndUser(currentUser);
+  };
+
+  const signupWithEmail = async (email: string, password: string, fullName?: string) => {
+    if (!supabase) {
+      // eslint-disable-next-line no-alert
+      alert('Supabase is not configured for this deployment.');
+      return;
+    }
+
+    const normalizedName = fullName?.trim();
+    const metadata =
+      normalizedName
+        ? {
+            full_name: normalizedName,
+            name: normalizedName,
+          }
+        : undefined;
+
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: metadata,
+      },
+    });
+
+    if (error) {
+      // eslint-disable-next-line no-alert
+      alert(error.message);
+      return;
+    }
+
+    const currentUser = data.session?.user ?? null;
+    if (currentUser) {
+      await refreshProfileAndUser(currentUser);
+      return;
+    }
+
+    // eslint-disable-next-line no-alert
+    alert('Signup successful. Check your email for the confirmation link, then sign in.');
+  };
+
+  const continueAsGuest = () => {
+    setIsGuest(true);
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(GUEST_ACCESS_KEY, '1');
+    }
   };
 
   const logout = async () => {
-    if (!supabase) return;
-    await supabase.auth.signOut();
+    clearGuestAccess();
+    if (supabase) {
+      await supabase.auth.signOut();
+    }
     setRawUser(null);
     setProfile(null);
     setUser(null);
+    setIsAdminFlag(false);
   };
 
   const updateProfile = (patch: Partial<Pick<AppUser, 'name' | 'bio'>>) => {
@@ -215,8 +341,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         role,
         loading,
         isLoggedIn,
+        isGuest,
+        hasAccess,
         loginWithGoogle,
         loginWithEmail,
+        signupWithEmail,
+        continueAsGuest,
         logout,
         updateProfile,
       }}

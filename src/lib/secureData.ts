@@ -58,6 +58,7 @@ export type AdminMemberWithStats = {
   fullName: string;
   email: string;
   joinedAt: string;
+  lastSignInAt: string | null;
   purchasesCount: number;
   totalSpendInr: number;
   lastPurchaseAt: string | null;
@@ -340,9 +341,10 @@ export const fetchAdminMembersWithStats = async (): Promise<AdminMemberWithStats
       userId: p.id,
       role: p.role || 'subscriber',
       subscriptionActive: !!p.subscription_active,
-      fullName: p.full_name || 'Member',
+      fullName: p.full_name || p.email?.split('@')?.[0] || 'Member',
       email: p.email || 'Hidden',
       joinedAt: p.created_at || nowIso(),
+      lastSignInAt: p.last_sign_in_at || null,
       purchasesCount: stats.count,
       totalSpendInr: stats.spend,
       lastPurchaseAt: stats.lastAt,

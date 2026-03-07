@@ -32,6 +32,7 @@ interface AdminLayoutProps {
   onLogout: () => void;
   searchQuery?: string;
   setSearchQuery?: (query: string) => void;
+  adminSessionLabel?: string;
 }
 
 const AdminLayout: React.FC<AdminLayoutProps> = ({ 
@@ -40,7 +41,8 @@ const AdminLayout: React.FC<AdminLayoutProps> = ({
   setActiveTab, 
   onLogout,
   searchQuery = '',
-  setSearchQuery
+  setSearchQuery,
+  adminSessionLabel = ''
 }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
@@ -217,6 +219,9 @@ const AdminLayout: React.FC<AdminLayoutProps> = ({
                 }
               </h1>
               <p className="text-sm text-gray-500 hidden sm:block">Welcome back, Administrator</p>
+              {adminSessionLabel ? (
+                <p className="text-xs text-emerald-700 font-semibold mt-1">{adminSessionLabel}</p>
+              ) : null}
             </div>
           </div>
           

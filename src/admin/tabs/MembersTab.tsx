@@ -70,13 +70,14 @@ const MembersTab: React.FC = () => {
               <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-gray-500">Role</th>
               <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-gray-500">Purchases</th>
               <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-gray-500">Total Spend</th>
+              <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-gray-500">Last Login</th>
               <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-gray-500">Last Purchase</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
             {members.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-6 py-10 text-sm text-gray-500 text-center">
+                <td colSpan={6} className="px-6 py-10 text-sm text-gray-500 text-center">
                   No member records found.
                 </td>
               </tr>
@@ -102,6 +103,9 @@ const MembersTab: React.FC = () => {
                   </td>
                   <td className="px-6 py-4 text-sm font-semibold text-gray-900">{m.purchasesCount}</td>
                   <td className="px-6 py-4 text-sm font-semibold text-gray-900">INR {Math.round(m.totalSpendInr).toLocaleString()}</td>
+                  <td className="px-6 py-4 text-xs text-gray-500">
+                    {m.lastSignInAt ? new Date(m.lastSignInAt).toLocaleString() : 'Never'}
+                  </td>
                   <td className="px-6 py-4 text-xs text-gray-500">
                     {m.lastPurchaseAt ? new Date(m.lastPurchaseAt).toLocaleString() : 'No purchases'}
                   </td>

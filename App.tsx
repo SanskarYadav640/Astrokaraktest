@@ -26,6 +26,9 @@ import TextReadingForm from './pages/TextReadingForm';
 import Reviews from './pages/Reviews';
 import AuthCallback from './pages/AuthCallback';
 import RequireAdminRoute from './components/RequireAdminRoute';
+import RequireSiteAccessRoute from './components/RequireSiteAccessRoute';
+import RequireMemberRoute from './components/RequireMemberRoute';
+import PublicLogin from './pages/PublicLogin';
 
 // Admin Editor
 import BlogEditor from './src/admin/pages/BlogEditor';
@@ -44,6 +47,8 @@ const App: React.FC = () => {
       <Router>
         <ScrollToTop />
         <Routes>
+          <Route path="/login" element={<PublicLogin />} />
+
           {/* Admin Routes - Rendered standalone without Public Navbar */}
           <Route path="/admin" element={<AdminDashboard />} />
           <Route element={<RequireAdminRoute />}>
@@ -54,33 +59,38 @@ const App: React.FC = () => {
           {/* Auth callback for Supabase OAuth (Google) */}
           <Route path="/auth/callback" element={<AuthCallback />} />
 
-          {/* Public Routes */}
-          <Route element={<PublicLayout />}>
-            <Route path="/" element={<Home />} />
-            <Route path="/start-here" element={<StartHere />} />
-            <Route path="/consultations" element={<Consultations />} />
-            <Route path="/shop" element={<Shop />} />
-            <Route path="/courses" element={<Courses />} />
-            <Route path="/blog" element={<Blog />} />
-            <Route path="/reels" element={<AnimatedShortVideos />} />
-            <Route path="/blog/:slug" element={<BlogPost />} />
-            <Route path="/category/:categorySlug" element={<CategoryPage />} />
-            <Route path="/about" element={<About />} />
-            <Route path="/contact" element={<Contact />} />
-            <Route path="/priority-dm" element={<Contact />} />
-            <Route path="/community" element={<Community />} />
-            <Route path="/jyotish-books" element={<JyotishBooks />} />
-            <Route path="/jyotish-books/:categoryId/:subcategorySlug" element={<JyotishBookSubcategory />} />
-            <Route path="/text-reading" element={<TextReadingForm />} />
-            <Route path="/reviews" element={<Reviews />} />
-            <Route path="/privacy" element={<Legal />} />
-            <Route path="/terms" element={<Legal />} />
-            <Route path="/refund-policy" element={<Legal />} />
-            <Route path="/disclaimer" element={<Legal />} />
-            <Route path="/profile" element={<MemberProfile />} />
-            
-            {/* Fallback */}
-            <Route path="*" element={<Navigate to="/" replace />} />
+          {/* Public app requires user access: auth user or guest */}
+          <Route element={<RequireSiteAccessRoute />}>
+            <Route element={<PublicLayout />}>
+              <Route path="/" element={<Home />} />
+              <Route path="/start-here" element={<StartHere />} />
+              <Route path="/consultations" element={<Consultations />} />
+              <Route path="/shop" element={<Shop />} />
+              <Route path="/courses" element={<Courses />} />
+              <Route path="/blog" element={<Blog />} />
+              <Route path="/reels" element={<AnimatedShortVideos />} />
+              <Route path="/blog/:slug" element={<BlogPost />} />
+              <Route path="/category/:categorySlug" element={<CategoryPage />} />
+              <Route path="/about" element={<About />} />
+              <Route path="/contact" element={<Contact />} />
+              <Route path="/priority-dm" element={<Contact />} />
+              <Route path="/community" element={<Community />} />
+              <Route path="/jyotish-books" element={<JyotishBooks />} />
+              <Route path="/jyotish-books/:categoryId/:subcategorySlug" element={<JyotishBookSubcategory />} />
+              <Route path="/text-reading" element={<TextReadingForm />} />
+              <Route path="/reviews" element={<Reviews />} />
+              <Route path="/privacy" element={<Legal />} />
+              <Route path="/terms" element={<Legal />} />
+              <Route path="/refund-policy" element={<Legal />} />
+              <Route path="/disclaimer" element={<Legal />} />
+
+              <Route element={<RequireMemberRoute />}>
+                <Route path="/profile" element={<MemberProfile />} />
+              </Route>
+
+              {/* Fallback */}
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Route>
           </Route>
         </Routes>
       </Router>
