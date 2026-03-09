@@ -356,7 +356,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           <div className="max-w-xl w-full bg-white rounded-2xl shadow-lg px-8 py-10 border border-gray-100">
             <h1 className="text-2xl font-serif font-bold text-gray-900 mb-3">Configuration required</h1>
             <p className="text-sm text-gray-600 mb-4">
-              Supabase is not configured for this deployment. Add these environment variables in Vercel, then redeploy.
+              Supabase is not configured for this deployment. Add these environment variables in your deployment environment (for this repo, GitHub Actions secrets), then redeploy.
             </p>
             <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 text-xs text-gray-700 font-mono space-y-1">
               <div>VITE_SUPABASE_URL=...</div>

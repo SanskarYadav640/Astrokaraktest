@@ -1,38 +1,37 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
-
-# Run and deploy your AI Studio app
-
-This contains everything you need to run your app locally.
-
-View your app in AI Studio: https://ai.studio/apps/drive/10WrmBHz4JbKJLkODI3MMgOh1Exhv5M5f
+# Astrokarak - Vedic Astrology Education
 
 ## Run Locally
 
-**Prerequisites:**  Node.js
-
+Prerequisites: Node.js 20+
 
 1. Install dependencies:
    `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
+2. Set required env vars in `.env.local`:
+   - `GEMINI_API_KEY`
+   - `VITE_SUPABASE_URL`
+   - `VITE_SUPABASE_ANON_KEY` (or `VITE_SUPABASE_PUBLISHABLE_KEY`)
 3. Run the app:
    `npm run dev`
 
-## Supabase Security Setup (Required for Admin + Member Data)
+## Deploy on GitHub Pages
 
-To enable protected blog/admin/member data access and automatic purchase-based entitlements:
+This repository is configured for GitHub Actions deployment to GitHub Pages via `.github/workflows/deploy-pages.yml`.
 
-1. Set these env vars in `.env.local`:
+1. In GitHub repository settings, ensure Pages uses `GitHub Actions` as the source.
+2. Add these repository secrets:
    - `VITE_SUPABASE_URL`
    - `VITE_SUPABASE_ANON_KEY` (or `VITE_SUPABASE_PUBLISHABLE_KEY`)
-2. In Supabase SQL Editor, run:
+3. Push to `main` to trigger deployment.
+
+## Supabase Security Setup (Required for Admin + Member Data)
+
+1. In Supabase SQL Editor, run:
    - `supabase/secure-access.sql`
-3. Ensure your `profiles` table includes:
+2. Ensure your `profiles` table includes:
    - `id uuid` (same as `auth.users.id`)
    - `role text` (`admin` or `subscriber`)
    - `subscription_active boolean`
-4. Set at least one admin user in `profiles.role = 'admin'`.
+3. Set at least one admin user in `profiles.role = 'admin'`.
 
 After setup:
 - Admin-only: blog editing, member management, analytics, purchase data.
