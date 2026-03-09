@@ -1,7 +1,6 @@
 
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Lock } from 'lucide-react';
 
 const Footer: React.FC = () => {
   return (
@@ -52,14 +51,6 @@ const Footer: React.FC = () => {
           <p className="text-xs text-center md:text-left text-gray-500">
             &copy; {new Date().getFullYear()} Astrokarak. All rights reserved. Sidereal calculations used.
           </p>
-          
-          <Link 
-            to="/admin" 
-            className="flex items-center space-x-2 px-4 py-2 bg-gray-800/50 border border-gray-700 rounded-lg text-gray-500 hover:bg-gray-800 hover:text-white hover:border-amber-700/50 transition-all text-[10px] font-bold uppercase tracking-[0.2em]"
-          >
-            <Lock className="h-3 w-3" />
-            <span>Admin Access</span>
-          </Link>
         </div>
       </div>
     </footer>

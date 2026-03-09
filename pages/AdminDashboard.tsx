@@ -29,6 +29,12 @@ const AdminDashboard: React.FC = () => {
     setBlogs(listBlogs());
   }, []);
 
+  useEffect(() => {
+    if (!loading && role !== 'admin' && !user) {
+      void loginWithGoogle('/admin');
+    }
+  }, [loading, role, user, loginWithGoogle]);
+
   // Refresh Handler
   const refreshData = () => {
     setBlogs(listBlogs());
@@ -53,16 +59,15 @@ const AdminDashboard: React.FC = () => {
       <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
         <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8 border border-gray-100">
           <h1 className="text-2xl font-serif font-bold text-gray-900 mb-3 text-center">Admin Access Only</h1>
-          <p className="text-sm text-gray-500 mb-6 text-center">
-            This dashboard is restricted to administrator accounts. Use Google sign-in with an admin-authorized account.
-          </p>
-
-          <button
-            onClick={() => loginWithGoogle('/admin')}
-            className="w-full py-3 bg-white text-gray-900 font-bold rounded-lg border border-gray-200 hover:border-amber-700 hover:text-amber-700 transition-all text-[11px] uppercase tracking-widest"
-          >
-            Continue with Google
-          </button>
+          {user ? (
+            <p className="text-sm text-gray-500 text-center">
+              This Google account is not authorized as admin.
+            </p>
+          ) : (
+            <p className="text-sm text-gray-500 text-center">
+              Redirecting to Google sign-in for admin authentication...
+            </p>
+          )}
         </div>
       </div>
     );

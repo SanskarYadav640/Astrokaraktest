@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 const PublicLogin: React.FC = () => {
@@ -128,9 +128,6 @@ const PublicLogin: React.FC = () => {
           Continue as Guest
         </button>
 
-        <p className="text-xs text-gray-400 text-center mt-6">
-          Admin login is Google-only. <Link to="/admin" className="text-amber-700 font-semibold hover:underline">Go to Admin</Link>
-        </p>
       </div>
     </div>
   );
