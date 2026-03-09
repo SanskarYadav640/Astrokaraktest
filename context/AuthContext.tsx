@@ -147,14 +147,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setProfile(profileData);
       setUser(mapSessionToUser(currentUser, profileData));
 
-      // Role lookup can fail if profile RLS/policies are strict.
-      // Use security-definer RPC fallback to determine admin status.
-      try {
-        const { data: adminData } = await supabase.rpc('is_admin');
-        setIsAdminFlag(adminData === true);
-      } catch {
-        setIsAdminFlag(profileData?.role === 'admin');
+      // Admin access is controlled by server-side allowlist only.
+      const { data: adminData, error: adminError } = await supabase.rpc('is_admin');
+      if (adminError) {
+        // eslint-disable-next-line no-console
+        console.warn('Admin role lookup warning:', adminError.message);
       }
+      setIsAdminFlag(adminData === true);
 
       if (error) {
         // eslint-disable-next-line no-console
@@ -205,10 +204,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => subscription.unsubscribe();
   }, []);
 
-  const role: Role =
-    !rawUser ? 'public'
-    : isAdminFlag || profile?.role === 'admin' ? 'admin'
-    : 'subscriber';
+  const role: Role = !rawUser ? 'public' : isAdminFlag ? 'admin' : 'subscriber';
 
   const isLoggedIn = !!rawUser;
   const hasAccess = isLoggedIn || isGuest;

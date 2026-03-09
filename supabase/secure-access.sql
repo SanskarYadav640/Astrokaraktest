@@ -105,7 +105,10 @@ begin
   )
   values (
     new.id,
-    'subscriber',
+    case
+      when exists (select 1 from public.admin_allowed_ids a where a.user_id = new.id) then 'admin'
+      else 'subscriber'
+    end,
     false,
     coalesce(
       nullif(new.raw_user_meta_data->>'full_name', ''),
@@ -158,7 +161,10 @@ begin
   )
   select
     u.id,
-    coalesce(v_existing_role, 'subscriber'),
+    case
+      when exists (select 1 from public.admin_allowed_ids a where a.user_id = u.id) then 'admin'
+      else coalesce(v_existing_role, 'subscriber')
+    end,
     coalesce(v_existing_subscription, false),
     coalesce(
       nullif(u.raw_user_meta_data->>'full_name', ''),
@@ -174,6 +180,14 @@ begin
   from auth.users u
   where u.id = v_uid
   on conflict (id) do update set
+    role = case
+      when exists (select 1 from public.admin_allowed_ids a where a.user_id = excluded.id) then 'admin'
+      else 'subscriber'
+    end,
+    subscription_active = case
+      when exists (select 1 from public.admin_allowed_ids a where a.user_id = excluded.id) then true
+      else p.subscription_active
+    end,
     email = excluded.email,
     full_name = coalesce(excluded.full_name, p.full_name),
     avatar_url = coalesce(excluded.avatar_url, p.avatar_url),
@@ -352,6 +366,161 @@ $$;
 revoke all on function public.add_admin_by_email(text, text) from public;
 grant execute on function public.add_admin_by_email(text, text) to service_role;
 
+-- Admin-only member management helpers for website UI.
+-- NOTE: These functions cannot create/delete admins. Admins are managed manually in Supabase.
+create or replace function public.admin_add_member_by_email(
+  target_email text,
+  member_full_name text default null,
+  member_subscription_active boolean default false
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+declare
+  v_uid uuid := auth.uid();
+  v_target_user auth.users%rowtype;
+begin
+  if v_uid is null then
+    raise exception 'Not authenticated';
+  end if;
+  if public.is_admin() is not true then
+    raise exception 'Admin access required';
+  end if;
+
+  select *
+  into v_target_user
+  from auth.users u
+  where lower(u.email) = lower(trim(target_email))
+  limit 1;
+
+  if v_target_user.id is null then
+    raise exception 'No registered user found for email: %', target_email;
+  end if;
+
+  if exists (select 1 from public.admin_allowed_ids a where a.user_id = v_target_user.id) then
+    raise exception 'Cannot modify admin users from website';
+  end if;
+
+  insert into public.profiles as p (
+    id, role, subscription_active, full_name, email, avatar_url, created_at, updated_at, last_sign_in_at
+  )
+  values (
+    v_target_user.id,
+    'subscriber',
+    coalesce(member_subscription_active, false),
+    coalesce(
+      nullif(trim(member_full_name), ''),
+      nullif(v_target_user.raw_user_meta_data->>'full_name', ''),
+      nullif(v_target_user.raw_user_meta_data->>'name', ''),
+      split_part(coalesce(v_target_user.email, ''), '@', 1),
+      'Member'
+    ),
+    v_target_user.email,
+    nullif(v_target_user.raw_user_meta_data->>'avatar_url', ''),
+    coalesce(v_target_user.created_at, now()),
+    now(),
+    v_target_user.last_sign_in_at
+  )
+  on conflict (id) do update set
+    role = 'subscriber',
+    subscription_active = coalesce(member_subscription_active, p.subscription_active),
+    full_name = coalesce(nullif(trim(member_full_name), ''), p.full_name),
+    email = coalesce(v_target_user.email, p.email),
+    avatar_url = coalesce(nullif(v_target_user.raw_user_meta_data->>'avatar_url', ''), p.avatar_url),
+    updated_at = now(),
+    last_sign_in_at = v_target_user.last_sign_in_at;
+
+  return v_target_user.id;
+end;
+$$;
+
+create or replace function public.admin_update_member(
+  target_user_id uuid,
+  target_email text default null,
+  target_full_name text default null,
+  target_subscription_active boolean default null
+)
+returns public.profiles
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid uuid := auth.uid();
+  v_profile public.profiles;
+begin
+  if v_uid is null then
+    raise exception 'Not authenticated';
+  end if;
+  if public.is_admin() is not true then
+    raise exception 'Admin access required';
+  end if;
+
+  if exists (select 1 from public.admin_allowed_ids a where a.user_id = target_user_id) then
+    raise exception 'Cannot modify admin users from website';
+  end if;
+
+  update public.profiles p
+  set
+    role = 'subscriber',
+    email = coalesce(nullif(trim(target_email), ''), p.email),
+    full_name = coalesce(nullif(trim(target_full_name), ''), p.full_name),
+    subscription_active = coalesce(target_subscription_active, p.subscription_active),
+    updated_at = now()
+  where p.id = target_user_id
+  returning p.* into v_profile;
+
+  if v_profile.id is null then
+    raise exception 'Member profile not found';
+  end if;
+
+  return v_profile;
+end;
+$$;
+
+create or replace function public.admin_remove_member(target_user_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid uuid := auth.uid();
+begin
+  if v_uid is null then
+    raise exception 'Not authenticated';
+  end if;
+  if public.is_admin() is not true then
+    raise exception 'Admin access required';
+  end if;
+
+  if exists (select 1 from public.admin_allowed_ids a where a.user_id = target_user_id) then
+    raise exception 'Cannot remove admin users from website';
+  end if;
+
+  delete from public.member_entitlements where user_id = target_user_id;
+  delete from public.member_bookings where user_id = target_user_id;
+  delete from public.member_purchases where user_id = target_user_id;
+  delete from public.member_biodata where user_id = target_user_id;
+  delete from public.profiles where id = target_user_id and role <> 'admin';
+
+  if not found then
+    raise exception 'Member profile not found';
+  end if;
+end;
+$$;
+
+revoke all on function public.admin_add_member_by_email(text, text, boolean) from public;
+grant execute on function public.admin_add_member_by_email(text, text, boolean) to authenticated;
+
+revoke all on function public.admin_update_member(uuid, text, text, boolean) from public;
+grant execute on function public.admin_update_member(uuid, text, text, boolean) to authenticated;
+
+revoke all on function public.admin_remove_member(uuid) from public;
+grant execute on function public.admin_remove_member(uuid) to authenticated;
+
 -- Auto-grant entitlement when a paid purchase is inserted.
 create or replace function public.grant_entitlement_from_purchase()
 returns trigger
@@ -405,18 +574,15 @@ create policy profiles_self_update on public.profiles
 for update using (auth.uid() = id or public.is_admin())
 with check (auth.uid() = id or public.is_admin());
 
--- Admin allowlist: only admins can view/mutate.
+-- Admin allowlist: website clients can only read it; mutation is manual in Supabase.
 drop policy if exists admin_allowed_ids_admin_select on public.admin_allowed_ids;
 create policy admin_allowed_ids_admin_select on public.admin_allowed_ids
 for select using (public.is_admin());
 
 drop policy if exists admin_allowed_ids_admin_insert on public.admin_allowed_ids;
-create policy admin_allowed_ids_admin_insert on public.admin_allowed_ids
-for insert with check (public.is_admin());
-
 drop policy if exists admin_allowed_ids_admin_delete on public.admin_allowed_ids;
-create policy admin_allowed_ids_admin_delete on public.admin_allowed_ids
-for delete using (public.is_admin());
+-- No insert/delete policy on website clients.
+-- Admin allowlist must be managed manually via Supabase dashboard/SQL.
 
 -- Self or admin access for member tables.
 drop policy if exists member_biodata_self_select on public.member_biodata;

@@ -73,6 +73,19 @@ export type AdminAnalyticsSnapshot = {
   recentPurchases: MemberPurchase[];
 };
 
+export type AdminCreateMemberInput = {
+  email: string;
+  fullName?: string;
+  subscriptionActive?: boolean;
+};
+
+export type AdminUpdateMemberInput = {
+  userId: string;
+  email?: string;
+  fullName?: string;
+  subscriptionActive?: boolean;
+};
+
 const nowIso = () => new Date().toISOString();
 
 const noSupabase = () => !supabase;
@@ -84,24 +97,23 @@ const getCurrentUser = async () => {
   return data.user;
 };
 
-const getRoleForUser = async (userId: string): Promise<'admin' | 'subscriber' | 'public'> => {
-  if (noSupabase()) return 'public';
-  const { data, error } = await supabase!
-    .from('profiles')
-    .select('role')
-    .eq('id', userId)
-    .maybeSingle();
-
-  if (error || !data?.role) return 'subscriber';
-  return data.role === 'admin' ? 'admin' : 'subscriber';
+const isCurrentUserAdmin = async (): Promise<boolean> => {
+  if (noSupabase()) return false;
+  const { data, error } = await supabase!.rpc('is_admin');
+  if (error) {
+    // eslint-disable-next-line no-console
+    console.error('Failed to verify admin access:', error.message);
+    return false;
+  }
+  return data === true;
 };
 
 const requireAdmin = async (): Promise<string> => {
   const user = await getCurrentUser();
   if (!user) throw new Error('Not authenticated');
 
-  const role = await getRoleForUser(user.id);
-  if (role !== 'admin') throw new Error('Admin access required');
+  const isAdmin = await isCurrentUserAdmin();
+  if (!isAdmin) throw new Error('Admin access required');
   return user.id;
 };
 
@@ -350,6 +362,48 @@ export const fetchAdminMembersWithStats = async (): Promise<AdminMemberWithStats
       lastPurchaseAt: stats.lastAt,
     };
   });
+};
+
+export const adminAddMemberByEmail = async (input: AdminCreateMemberInput): Promise<string> => {
+  await requireAdmin();
+  if (noSupabase()) throw new Error('Supabase not configured');
+
+  const normalizedEmail = input.email.trim().toLowerCase();
+  if (!normalizedEmail) throw new Error('Email is required');
+
+  const { data, error } = await supabase!.rpc('admin_add_member_by_email', {
+    target_email: normalizedEmail,
+    member_full_name: input.fullName?.trim() || null,
+    member_subscription_active: input.subscriptionActive ?? false,
+  });
+
+  if (error) throw new Error(error.message);
+  if (!data) throw new Error('Failed to add member');
+  return String(data);
+};
+
+export const adminUpdateMember = async (input: AdminUpdateMemberInput): Promise<void> => {
+  await requireAdmin();
+  if (noSupabase()) throw new Error('Supabase not configured');
+
+  const { error } = await supabase!.rpc('admin_update_member', {
+    target_user_id: input.userId,
+    target_email: input.email?.trim() || null,
+    target_full_name: input.fullName?.trim() || null,
+    target_subscription_active: input.subscriptionActive ?? null,
+  });
+
+  if (error) throw new Error(error.message);
+};
+
+export const adminRemoveMember = async (userId: string): Promise<void> => {
+  await requireAdmin();
+  if (noSupabase()) throw new Error('Supabase not configured');
+
+  const { error } = await supabase!.rpc('admin_remove_member', {
+    target_user_id: userId,
+  });
+  if (error) throw new Error(error.message);
 };
 
 export const fetchAdminPurchases = async (): Promise<MemberPurchase[]> => {
